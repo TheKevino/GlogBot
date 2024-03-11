@@ -1,0 +1,4 @@
+aiohttp==3.9.3
+botbuilder-core==4.14.8
+spacy==3.7.4
+langdetect==1.0.9
