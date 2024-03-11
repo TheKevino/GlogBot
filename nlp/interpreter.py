@@ -3,6 +3,19 @@ from langdetect import detect
 
 class Interpreter:
     def __init__(self):
+
+        try:
+            spacy.load("es_core_news_sm")
+        except IOError:
+            from spacy.cli import download
+            download("es_core_news_sm")
+
+        try:
+            spacy.load("en_core_web_sm")
+        except IOError:
+            from spacy.cli import download
+            download("en_core_web_sm")
+
         # Carga ambos modelos de lenguaje.
         self.nlp_es = spacy.load("es_core_news_sm")
         self.nlp_en = spacy.load("en_core_web_sm")
