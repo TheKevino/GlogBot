@@ -1,44 +1,61 @@
+import sys
+import traceback
+from datetime import datetime
 from aiohttp import web
-from botbuilder.core import (
-    BotFrameworkAdapterSettings,
-    BotFrameworkAdapter,
-)
-from botbuilder.schema import Activity
+from aiohttp.web import Request, Response, json_response
+from botbuilder.core import (BotFrameworkAdapter, BotFrameworkAdapterSettings, TurnContext)
+from botbuilder.core.integration import aiohttp_error_middleware
+from botbuilder.schema import Activity, ActivityTypes
 
-from gbot import Gbot  # Ajusta la ruta de importación según tu estructura de proyecto
+from gbot import Gbot  # Asegúrate de que la ruta de importación sea correcta
+from config import DefaultConfig
 
-# Configura el bot
-# APP_ID = '5e6f36ee-18d3-4d33-8f8f-4e08c5e1c977'  # Tu Microsoft App ID
-# APP_PASSWORD = 'a97a69c7-98b6-4068-9b17-12444e73c867'  # Tu Microsoft App Password
-APP_ID = ''  # Tu Microsoft App ID
-APP_PASSWORD = ''  # Tu Microsoft App Password
-SETTINGS = BotFrameworkAdapterSettings(APP_ID, APP_PASSWORD)
+CONFIG = DefaultConfig()
+
+SETTINGS = BotFrameworkAdapterSettings(CONFIG.APP_ID, CONFIG.APP_PASSWORD)
 ADAPTER = BotFrameworkAdapter(SETTINGS)
 
-# Crea la instancia de tu bot
+async def on_error(context: TurnContext, error: Exception):
+    print(f"\n [on_turn_error] unhandled error: {error}", file=sys.stderr)
+    traceback.print_exc()
+    await context.send_activity("The bot encountered an error or bug.")
+    await context.send_activity("To continue to run this bot, please fix the bot source code.")
+    if context.activity.channel_id == "emulator":
+        trace_activity = Activity(
+            label="TurnError",
+            name="on_turn_error Trace",
+            timestamp=datetime.utcnow(),
+            type=ActivityTypes.trace,
+            value=f"{error}",
+            value_type="https://www.botframework.com/schemas/error",
+        )
+        await context.send_activity(trace_activity)
+
+ADAPTER.on_turn_error = on_error
+
 GBOT = Gbot()
 
-# Define el endpoint del bot
-async def messages(req: web.Request) -> web.Response:
+async def messages(req: Request) -> Response:
     if "application/json" in req.headers["Content-Type"]:
         body = await req.json()
     else:
-        return web.Response(status=415)
+        return Response(status=415)
 
     activity = Activity().deserialize(body)
     auth_header = req.headers["Authorization"] if "Authorization" in req.headers else ""
+    response = await ADAPTER.process_activity(activity, auth_header, GBOT.on_turn)
+    if response:
+        return json_response(data=response.body, status=response.status)
+    return Response(status=201)
 
-    try:
-        await ADAPTER.process_activity(activity, auth_header, GBOT.on_turn)
-        return web.Response(status=201)
-    except Exception as e:
-        raise e
-
-APP = web.Application()
-APP.router.add_post("/api/messages", messages)
+def init_func(argv):
+    app = web.Application(middlewares=[aiohttp_error_middleware])
+    app.router.add_post("/api/messages", messages)
+    return app
 
 if __name__ == "__main__":
+    APP = init_func(None)
     try:
-        web.run_app(APP, host="10.112.254.84", port=3978)
-    except Exception as e:
-        raise e
+        web.run_app(APP, host="0.0.0.0", port=CONFIG.PORT)
+    except Exception as error:
+        raise error
